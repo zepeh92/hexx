@@ -135,21 +135,6 @@ namespace Hexx.Core
         }
 
         /// <summary>
-        /// @todo 제거 예정
-        /// 다른 테이블과 행을 머지합니다.
-        /// </summary>
-        /// <param name="other">머지할 테이블</param>
-        public void Merge(Table other)
-        {
-            if (!IsCompatibleWith(other))
-            {
-                throw new Exception($"{Name} schema is not compatible with {other.Name} schema");
-            }
-
-            AddRows(other.Rows);
-        }
-
-        /// <summary>
         /// 행을 하나 추가합니다.
         /// </summary>
         /// <param name="row"></param>

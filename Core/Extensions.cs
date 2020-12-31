@@ -59,7 +59,7 @@ namespace Hexx.Core
                     return string.Empty;
                 case FieldType.List:
                     return null;
-                case FieldType.Object:
+                case FieldType.Schema:
                     return null;
                 case FieldType.Ref:
                     return null;

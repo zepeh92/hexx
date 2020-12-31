@@ -1,0 +1,17 @@
+# FOR C#
+*.cache
+*.CopyComplete
+*.AssemblyInfo.cs
+*.FileListAbsolute.txt
+*.user
+*.opendb
+*.VC.db
+.vs/
+*.dll
+*.pdb
+Core/bin/
+Core/obj/
+Definition/bin/
+Definition/obj/
+Converters_ExcelConverter/bin/
+Converters_ExcelConverter/obj/

@@ -1,28 +1,29 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Linq;
 
 namespace Hexx.Core
 {
     public class Linker
     {
-        private Dictionary<string, Schema> indexedSchemasByName;
-        private Dictionary<string, Table> indexedTablesByName;
-        private Dictionary<string, List<Table>> indexedPartialTablesBySchemaName;
+        private readonly Dictionary<string, Schema> indexedSchemas;
+        private readonly Dictionary<string, Table> indexedTables;
+        private readonly Dictionary<string, List<Table>> indexedPartialTables;
+        private readonly Dictionary<string, Table> indexedMergedTables;
 
         public Linker(
             IEnumerable<Schema> schemas, 
             IEnumerable<Table> tables)
         {
-            indexedSchemasByName = new Dictionary<string, Schema>(schemas.Count(), StringComparer.OrdinalIgnoreCase);
-            indexedTablesByName = new Dictionary<string, Table>(tables.Count(), StringComparer.OrdinalIgnoreCase);
-            indexedPartialTablesBySchemaName = new Dictionary<string, List<Table>>(schemas.Count(), StringComparer.OrdinalIgnoreCase);
+            indexedSchemas = new Dictionary<string, Schema>(schemas.Count(), StringComparer.OrdinalIgnoreCase);
+            indexedTables = new Dictionary<string, Table>(tables.Count(), StringComparer.OrdinalIgnoreCase);
+            indexedPartialTables = new Dictionary<string, List<Table>>(schemas.Count(), StringComparer.OrdinalIgnoreCase);
+            indexedMergedTables = new Dictionary<string, Table>(StringComparer.OrdinalIgnoreCase);
 
             foreach (Schema schema in schemas.Concat(from table in tables
                                                      select table.Schema))
             {
-                if (indexedSchemasByName.TryGetValue(schema.Name, out Schema existingSchema))
+                if (indexedSchemas.TryGetValue(schema.Name, out Schema existingSchema))
                 {// 이미 정의된 스키마가 있음
                     if (!existingSchema.IsCompatibleWith(schema))
                     {
@@ -31,8 +32,8 @@ namespace Hexx.Core
                 }
                 else
                 {// 이미 정의된 스키마가 없음
-                    indexedSchemasByName.Add(schema.Name, schema);
-                    indexedPartialTablesBySchemaName.Add(schema.Name, new List<Table>());
+                    indexedSchemas.Add(schema.Name, schema);
+                    indexedPartialTables.Add(schema.Name, new List<Table>());
                 }
             }
 
@@ -40,9 +41,26 @@ namespace Hexx.Core
             {
                 Schema schema = table.Schema;
 
-                indexedTablesByName.Add(table.Name, table);
+                indexedTables.Add(table.Name, table);
 
-                indexedPartialTablesBySchemaName[schema.Name].Add(table);
+                indexedPartialTables[schema.Name].Add(table);
+            }
+
+            foreach (var item in indexedPartialTables)
+            {
+                string name = item.Key;
+                Table mergedTable = new Table(name, GetSchema(name));
+                List<Table> partials = item.Value;
+                List<object[]> rows = new List<object[]>(partials.Sum(table => table.RowCount));
+
+                foreach (object[] row in rows)
+                {
+                    rows.Add(row);
+                }
+
+                mergedTable.AddRows(rows);
+
+                indexedMergedTables.Add(name, mergedTable);
             }
         }
 
@@ -53,7 +71,7 @@ namespace Hexx.Core
         {
             get
             {
-                return indexedSchemasByName.Values;
+                return indexedSchemas.Values;
             }
         }
 
@@ -64,7 +82,18 @@ namespace Hexx.Core
         {
             get
             {
-                return indexedTablesByName.Values;
+                return indexedTables.Values;
+            }
+        }
+
+        /// <summary>
+        /// 모든 병합 테이블을 반환합니다.
+        /// </summary>
+        public IEnumerable<Table> MergedTables
+        {
+            get
+            {
+                return indexedMergedTables.Values;
             }
         }
 
@@ -75,7 +104,7 @@ namespace Hexx.Core
         /// <returns>주어진 이름의 스키마를 반환합니다. 없을 시 null이 반환 됩니다.</returns>
         public Schema GetSchema(string name)
         {
-            return indexedSchemasByName.TryGetValue(name, out Schema schema) ? schema : null;
+            return indexedSchemas.TryGetValue(name, out Schema schema) ? schema : null;
         }
 
         /// <summary>
@@ -85,7 +114,7 @@ namespace Hexx.Core
         /// <returns>스키마 보유 여부</returns>
         public bool HasSchema(string name)
         {
-            return indexedSchemasByName.ContainsKey(name);
+            return indexedSchemas.ContainsKey(name);
         }
 
         /// <summary>
@@ -140,7 +169,7 @@ namespace Hexx.Core
         /// <returns>테이블 보유 여부</returns>
         public bool HasTable(string tableName)
         {
-            return indexedTablesByName.ContainsKey(tableName);
+            return indexedTables.ContainsKey(tableName);
         }
 
         /// <summary>
@@ -150,15 +179,7 @@ namespace Hexx.Core
         /// <returns>주어진 이름의 테이블을 반환합니다. 없을 시 null이 반환 됩니다.</returns>
         public Table GetTable(string tableName)
         {
-            Table table;
-            if (indexedTablesByName.TryGetValue(tableName, out table))
-            {
-                return table;
-            }
-            else
-            {
-                return null;
-            }
+            return indexedTables.TryGetValue(tableName, out Table table) ? table : null;
         }
 
         /// <summary>
@@ -167,22 +188,7 @@ namespace Hexx.Core
         /// </summary>
         public Table GetMergedTable(string schemaName)
         {
-            if (!indexedPartialTablesBySchemaName.ContainsKey(schemaName))
-            {
-                return null;
-            }
-
-            Schema schema = GetSchema(schemaName);
-            List<Table> partials = indexedPartialTablesBySchemaName[schemaName];
-            
-            Table mergedTable = new Table(schemaName, schema);
-
-            foreach (Table partial in partials)
-            {
-                mergedTable.Merge(partial);
-            }
-
-            return mergedTable;
+            return indexedMergedTables.TryGetValue(schemaName, out Table table) ? table : null;
         }
 
         /// <summary>
@@ -191,33 +197,31 @@ namespace Hexx.Core
         /// <param name="property">필드</param>
         /// <param name="value">값</param>
         /// <returns>참조하는 값. 실패 시 null을 반환합니다.</returns>
-        public object GetReferenceValue(string tableSchemaName, string refPropName, object value)
+        public object GetReferenceValue(string tableName, string refFieldName, object value)
         {
-            List<Table> partials;
-            if (!indexedPartialTablesBySchemaName.TryGetValue(tableSchemaName, out partials))
-            {
-                return null;
-            }
+            return GetReferenceValue(tableName, refFieldName, refFieldName, value);
+        }
 
-            if (!partials.Any())
+        /// <summary>
+        /// 참조하는 값을 반환합니다.
+        /// </summary>
+        /// <param name="property">필드</param>
+        /// <param name="value">값</param>
+        /// <returns>참조하는 값. 실패 시 null을 반환합니다.</returns>
+        public object GetReferenceValue(string tableName, string refFieldName, string refPickedFieldName, object value)
+        {
+            Table table;
+            if (indexedMergedTables.TryGetValue(tableName, out table))
             {
-                return null;
-            }
-
-            Table firstPartial = partials.First();
-
-            int idx = firstPartial.Schema.GetFieldIndex(refPropName);
-            if (idx == -1)
-            {
-                return null;
-            }
-
-            foreach (Table table in partials)
-            {
-                object[] foundRow = table.FindFirstRow(refPropName, value);
-                if (foundRow != null)
+                int refIdx = table.Schema.GetFieldIndex(refFieldName);
+                int repIdx = table.Schema.GetFieldIndex(refPickedFieldName);
+                if (refIdx != -1 && repIdx != -1)
                 {
-                    return foundRow[idx];
+                    object[] foundRow = table.FindFirstRow(refFieldName, value);
+                    if (foundRow != null)
+                    {
+                        return foundRow[repIdx];
+                    }
                 }
             }
             return null;
@@ -230,7 +234,7 @@ namespace Hexx.Core
         /// <returns>부분 테이블들</returns>
         public IEnumerable<Table> GetPartialTables(string schemaName)
         {
-            if (indexedPartialTablesBySchemaName.TryGetValue(schemaName, out List<Table> partialTables))
+            if (indexedPartialTables.TryGetValue(schemaName, out List<Table> partialTables))
             {
                 return partialTables;
             }
@@ -242,103 +246,31 @@ namespace Hexx.Core
         /// 특정 스키마와 연관된 파샬 테이블들을 반환합니다.
         /// </summary>
         /// <returns>연관된 파샬 테이블들</returns>
-        public List<Table> GetRelatedPartialTables(string schemaName)
+        public IEnumerable<Schema> GetReleatedSchemas(Schema schema)
         {
-            List<Table> partialTables = new List<Table>();
+            HashSet<string> releatedSchemasNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var item in indexedPartialTablesBySchemaName)
+            foreach (Field field in schema.Fields)
             {
-                string name = item.Key;
-                List<Table> partials = item.Value;
-
-                Schema schema = GetSchema(name);
-
-                foreach (Field prop in schema.Fields)
-                {
-                    if (IsFieldRelationWithSchemaName(schemaName, prop))
-                    {
-                        partialTables.AddRange(partials);
-                        break;
-                    }
-                }
+                InternalGetReleatedSchemaNames(ref releatedSchemasNames, field);
             }
 
-            return partialTables;
+            return releatedSchemasNames.Select(name => GetSchema(name));
         }
 
-        /// <summary>
-        /// 필드가 특정 스키마와 연관되었는지의 여부를 반환합니다.
-        /// </summary>
-        /// <param name="schemaName">특정 스키마</param>
-        /// <param name="prop">필드</param>
-        /// <returns>연관 여부</returns>
-        private bool IsFieldRelationWithSchemaName(string schemaName, Field prop)
+        private void InternalGetReleatedSchemaNames(ref HashSet<string> schemaNames, Field field)
         {
-            if (prop.Type == FieldType.Object)
+            if (field.Type == FieldType.Schema)
             {
-                if (prop.RefSchemaName.Equals(schemaName, StringComparison.OrdinalIgnoreCase))
+                Schema refSchema = GetSchema(field.RefSchemaName);
+                if (refSchema != null)
                 {
-                    return true;
-                }
-                else
-                {
-                    Schema refSchema = GetSchema(prop.RefSchemaName);
-                    if (refSchema != null)
-                    {
-                        foreach (Field refSchemaProp in refSchema.Fields)
-                        {
-                            if (IsFieldRelationWithSchemaName(schemaName, refSchemaProp))
-                            {
-                                return true;
-                            }
-                        }
-                    }
+                    schemaNames.Add(refSchema.Name);
                 }
             }
-            else if (
-                prop.Type == FieldType.Ref &&
-                prop.RefSchemaName.Equals(schemaName, StringComparison.OrdinalIgnoreCase))
+            else if (field.Type == FieldType.List)
             {
-                return true;
-            }
-            else if (prop.IsContainerType)
-            {
-                return IsFieldRelationWithSchemaName(schemaName, prop.ElementTemplate);
-            }
-            return false;
-        }
-
-        private void InternalRenameRefSchema(Field prop, string schemaName, string newSchemaName)
-        {
-            if (prop.RefSchemaName.Equals(schemaName))
-            {
-                prop.RefSchemaName = newSchemaName;
-            }
-
-            if (prop.ElementTemplate != null)
-            {
-                InternalRenameRefSchema(prop.ElementTemplate, schemaName, newSchemaName);
-            }
-        }
-
-        private void InternalRenameRefProperty(Field prop, string schemaName, string propName, string newPropName)
-        {
-            if (prop.RefSchemaName.Equals(schemaName))
-            {
-                if (prop.RefFieldName.Equals(propName))
-                {
-                    prop.RefFieldName = newPropName;
-                }
-
-                if (prop.RefPickedFieldName.Equals(propName))
-                {
-                    prop.RefPickedFieldName = newPropName;
-                }
-            }
-
-            if (prop.ElementTemplate != null)
-            {
-                InternalRenameRefProperty(prop.ElementTemplate, schemaName, propName, newPropName);
+                InternalGetReleatedSchemaNames(ref schemaNames, field.ElementTemplate);
             }
         }
 
@@ -404,7 +336,7 @@ namespace Hexx.Core
 
             switch (field.Type)
             {
-                case FieldType.Object:
+                case FieldType.Schema:
                     {
                         Schema refSchema = GetSchema(field.RefSchemaName);
                         if (refSchema != null)

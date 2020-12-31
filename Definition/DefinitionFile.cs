@@ -248,7 +248,7 @@ namespace Hexx.Definition
                     switch (defType)
                     {
                         case DefinitionType.Schema:
-                            field.Type = FieldType.Object;
+                            field.Type = FieldType.Schema;
                             break;
                         case DefinitionType.EnumTable:
                             Table enumTable = GetEnumTable(field.TypeName);

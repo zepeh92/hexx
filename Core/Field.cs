@@ -16,7 +16,7 @@ namespace Hexx.Core
         Real64,
         String,
         List,
-        Object,
+        Schema,
         Ref
     }
 
@@ -200,7 +200,7 @@ namespace Hexx.Core
                         case FieldType.String:
                             defaultValue = Convert.ToString(value);
                             break;
-                        case FieldType.Object:
+                        case FieldType.Schema:
                             defaultValue = null;
                             break;
                         case FieldType.Ref:
@@ -415,7 +415,7 @@ namespace Hexx.Core
             {
                 return false;
             }
-            else if (Type == FieldType.Object && !DirectsSameRefenceTarget(other))
+            else if (Type == FieldType.Schema && !DirectsSameRefenceTarget(other))
             {
                 return false;
             }
@@ -467,7 +467,7 @@ namespace Hexx.Core
                     RefFieldName.Equals(other.RefFieldName, StringComparison.OrdinalIgnoreCase) &&
                     RefPickedFieldName.Equals(other.RefPickedFieldName, StringComparison.OrdinalIgnoreCase);
             }
-            else if (Type == FieldType.Object && other.Type == FieldType.Object)
+            else if (Type == FieldType.Schema && other.Type == FieldType.Schema)
             {
                 return RefSchemaName.Equals(other.RefSchemaName, StringComparison.OrdinalIgnoreCase);
             }
