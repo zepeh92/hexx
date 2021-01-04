@@ -547,6 +547,8 @@ namespace Hexx.Definition
                 field.ElementCount = int.Parse(groups["count"].Value);
 
                 Field elemField = new Field();
+                elemField.Nullable = true;
+                elemField.NullDefaultValue = null;
 
                 BuildFieldType(ref elemField, groups["elementType"].Value);
 

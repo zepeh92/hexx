@@ -144,6 +144,7 @@ namespace Hexx.Core
 
         /// <summary>
         /// null 값 허용 여부
+        /// Nullable이 false인 테이블 필드에 null 입력 시 예외가 발생합니다.
         /// </summary>
         public bool Nullable
         {
@@ -152,8 +153,8 @@ namespace Hexx.Core
         } = false;
 
         /// <summary>
-        /// null 일때의 필드 기본 값.
-        /// 이 값은 Nullable일 때에만 유효합니다.
+        /// null 입력 시 설정될 값 입니다.
+        /// 이 값은 Nullable일 때에만 지정 가능합니다.
         /// </summary>
         public object NullDefaultValue
         {

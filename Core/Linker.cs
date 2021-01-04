@@ -11,6 +11,11 @@ namespace Hexx.Core
         private readonly Dictionary<string, List<Table>> indexedPartialTables;
         private readonly Dictionary<string, Table> indexedMergedTables;
 
+        public Linker(IEnumerable<Schema> schemas) :
+            this(schemas, Enumerable.Empty<Table>())
+        {
+        }
+
         public Linker(
             IEnumerable<Schema> schemas, 
             IEnumerable<Table> tables)
@@ -48,8 +53,11 @@ namespace Hexx.Core
 
             foreach (var item in indexedPartialTables)
             {
-                string name = item.Key;
-                Table mergedTable = new Table(name, GetSchema(name));
+                Schema schema = GetSchema(item.Key);
+                Schema flatSchema = ToFlatSchema(schema);
+
+                Table mergedTable = new Table(schema.Name, flatSchema);
+
                 List<Table> partials = item.Value;
                 List<object[]> rows = new List<object[]>(partials.Sum(table => table.RowCount));
 
@@ -60,7 +68,7 @@ namespace Hexx.Core
 
                 mergedTable.AddRows(rows);
 
-                indexedMergedTables.Add(name, mergedTable);
+                indexedMergedTables.Add(mergedTable.Name, mergedTable);
             }
         }
 
@@ -292,7 +300,7 @@ namespace Hexx.Core
                 }
                 else
                 {
-                    List<Field> flatField = ToFlatFields(field);
+                    List<Field> flatField = ToFlatFields(field, field.Nullable);
                     if (flatField == null)
                     {
                         return null;
@@ -330,7 +338,7 @@ namespace Hexx.Core
         /// </summary>
         /// <param name="field">플랫하게 만들 필드</param>
         /// <returns>플랫해진 필드. 내부 오류 발생 시 null이 반환 됩니다.</returns>
-        private List<Field> ToFlatFields(Field field)
+        private List<Field> ToFlatFields(Field field, bool nullable)
         {
             List<Field> flatFields = new List<Field>();
 
@@ -339,24 +347,34 @@ namespace Hexx.Core
                 case FieldType.Schema:
                     {
                         Schema refSchema = GetSchema(field.RefSchemaName);
-                        if (refSchema != null)
+                        if (refSchema == null)
                         {
                             return null;
                         }
 
                         if (refSchema.IsFlat)
                         {
-                            flatFields.AddRange(from refSchemaField in refSchema.Fields
-                                                select new Field(refSchemaField)
-                                                {
-                                                    Name = GetObjectFieldName(field, refSchemaField.Name)
-                                                });
+                            foreach (Field refField in refSchema.Fields)
+                            {
+                                Field refField2 = new Field(refField)
+                                {
+                                    Name = GetObjectFieldName(field, refField.Name),
+                                    Nullable = nullable
+                                };
+
+                                if (nullable)
+                                {
+                                    refField2.NullDefaultValue = null;
+                                }
+                                
+                                flatFields.Add(refField2);
+                            }
                         }
                         else
                         {
                             foreach (Field refSchemaProp in refSchema.Fields)
                             {
-                                foreach (Field refFlatField in ToFlatFields(refSchemaProp))
+                                foreach (Field refFlatField in ToFlatFields(refSchemaProp, nullable))
                                 {
                                     if (refFlatField == null)
                                     {
@@ -378,7 +396,9 @@ namespace Hexx.Core
                         var elemFields = from element in field.Elements
                                         select new Field(element)
                                         {
-                                            Name = GetContainerElementName(field, elemIdx++)
+                                            Name = GetContainerElementName(field, elemIdx++),
+                                            Nullable = true,
+                                            NullDefaultValue = null
                                         };
                         if (field.ElementTemplate.IsSimpleType)
                         {
@@ -388,7 +408,7 @@ namespace Hexx.Core
                         {
                             foreach (Field elemField in elemFields)
                             {
-                                foreach (Field elemFlatProp in ToFlatFields(elemField))
+                                foreach (Field elemFlatProp in ToFlatFields(elemField, true))
                                 {
                                     if (elemFlatProp == null)
                                     {

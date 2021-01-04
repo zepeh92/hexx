@@ -15,25 +15,45 @@ namespace Hexx.Converters
             this.linker = linker;
         }
 
-        public bool MarkOnRefError
-        {
-            get; set;
-        } = true;
-
+        /// <summary>
+        /// 참조용으로 만드는 테이블의 시트 이름
+        /// </summary>
         public string RefTableSheetName
         {
             get; set;
         } = "_REF_TABLE";
 
+        public string BooleanTableName
+        {
+            get; set;
+        } = "_BOOLEAN";
+
+        /// <summary>
+        /// 행 마진
+        /// </summary>
         public int MarginRowCount
         {
             get; set;
         } = 0;
 
+        /// <summary>
+        /// 열 마진
+        /// </summary>
         public int MarginColumnCount
         {
             get; set;
         } = 0;
+
+        public Excel.XlRgbColor[] ColorPool
+        {
+            get;
+        } = new Excel.XlRgbColor[]
+        {
+            Excel.XlRgbColor.rgbSkyBlue,
+            Excel.XlRgbColor.rgbOrange,
+            Excel.XlRgbColor.rgbLimeGreen,
+            Excel.XlRgbColor.rgbSandyBrown
+        };
 
         public override object[,] Undecorate(Excel.Worksheet worksheet, Schema schema, object[,] tableDatas)
         {
@@ -97,6 +117,11 @@ namespace Hexx.Converters
             DecorateFieldRow(worksheet, schema);
         }
 
+        /// <summary>
+        /// 테이블 데이터를 씁니다.
+        /// </summary>
+        /// <param name="worksheet">타겟 워크시트</param>
+        /// <param name="tableDatas">테이블 데이터</param>
         private void WriteTableDatas(Excel.Worksheet worksheet, object[,] tableDatas)
         {
             int rowCount = tableDatas.GetLength(0);
@@ -128,14 +153,14 @@ namespace Hexx.Converters
                 return;
             }
 
-            Field[] fields = schema.Fields.ToArray();
-            Excel.Range sheetCells = worksheet.Cells;
-
-            bool hasRef = fields.Any(prop => prop.Type == FieldType.Ref);
+            bool hasRef = schema.Fields.Any(prop => prop.Type == FieldType.Ref || !string.IsNullOrEmpty(prop.RefSchemaName) || prop.Type == FieldType.Bool);
             if (!hasRef)
             {
                 return;
             }
+
+            Field[] fields = schema.Fields.ToArray();
+            Excel.Range sheetCells = worksheet.Cells;
 
             Excel.Worksheet enumSheet = GetWorksheet(RefTableSheetName);
             if (enumSheet == null)
@@ -149,11 +174,30 @@ namespace Hexx.Converters
 
             Dictionary<string, string> enumRangeAddrs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+            if (fields.Any(field => field.Type == FieldType.Bool))
+            {
+                Excel.Range startCell = (Excel.Range)enumSheet.Cells[1, 1];
+                Excel.Range endCell = (Excel.Range)enumSheet.Cells[3, 1];
+                Excel.Range enumRange = enumSheet.Range[startCell, endCell];
+
+                object[,] boolTable = new object[3, 1] 
+                {
+                    { BooleanTableName },
+                    { "TRUE" },
+                    { "FALSE" }
+                };
+
+                enumRange.Cells.Value2 = boolTable;
+                enumRange = enumSheet.Range[startCell.Offset[1], endCell];
+
+                enumRangeAddrs.Add(BooleanTableName, $"={enumSheet.Name}!{enumRange.Address}");
+            }
+            
             for (int fieldIdx = 0; fieldIdx < fields.Length; ++fieldIdx)
             {// 이 테이블에 사용되는 Enum 셀을 생성 후 주소를 기억
                 Field field = fields[fieldIdx];
-                if (field.Type != FieldType.Ref)
-                {
+                if (field.Type != FieldType.Ref && string.IsNullOrEmpty(field.RefSchemaName))
+                {// 참조 프로퍼티가 Flat화 되면서 String으로 변경되어서 일단 이렇게 했음. 추후에 방식 수정 필요 
                     continue;
                 }
 
@@ -207,12 +251,21 @@ namespace Hexx.Converters
             for (int fieldIdx = 0; fieldIdx < fields.Length; ++fieldIdx)
             {
                 Field field = fields[fieldIdx];
-                if (field.Type != FieldType.Ref)
-                {
-                    continue;
-                }
 
-                string refTableFieldName = $"{field.RefSchemaName}({field.RefFieldName})";
+                string refTableFieldName;
+
+                if (field.Type == FieldType.Ref || !string.IsNullOrEmpty(field.RefSchemaName))
+                {// 참조 프로퍼티가 Flat화 되면서 String으로 변경되어서 일단 이렇게 했음. 추후에 방식 수정 필요 
+                    refTableFieldName = $"{field.RefSchemaName}({field.RefFieldName})";
+                }
+                else if(field.Type == FieldType.Bool)
+                {
+                    refTableFieldName = BooleanTableName;
+                }
+                else
+                {
+                    refTableFieldName = string.Empty;
+                }
 
                 if (!enumRangeAddrs.ContainsKey(refTableFieldName))
                 {
@@ -221,8 +274,8 @@ namespace Hexx.Converters
 
                 string enumRangeAddr = enumRangeAddrs[refTableFieldName];
 
-                Excel.Range startCell = (Excel.Range)sheetCells.Cells[MarginRowCount + 2, MarginColumnCount + 1 + fieldIdx];
-                Excel.Range endCell = (Excel.Range)sheetCells.Cells[MarginRowCount + 2 + rowCount, MarginColumnCount + 1 + fieldIdx];
+                Excel.Range startCell = (Excel.Range)sheetCells.Cells[MarginRowCount + 2/* 첫 데이터 행 위치 */, MarginColumnCount + 1 + fieldIdx];
+                Excel.Range endCell = (Excel.Range)sheetCells.Cells[MarginRowCount + rowCount, MarginColumnCount + 1 + fieldIdx];
                 Excel.Range range = sheetCells.Range[startCell, endCell];
 
                 Excel.Validation valid = range.Validation;
@@ -230,7 +283,7 @@ namespace Hexx.Converters
                 {
                     valid.Delete();
                 }
-                
+
                 valid.Add(
                         Excel.XlDVType.xlValidateList,
                         Excel.XlDVAlertStyle.xlValidAlertWarning,
@@ -257,9 +310,21 @@ namespace Hexx.Converters
             Field[] fields = schema.Fields.ToArray();
             Excel.Range sheetCells = worksheet.Cells;
 
-            for (int rowIdx = 0; rowIdx < rowCount; ++rowIdx)
-            {// 레코드 - 참조 오류에 색칠
-                for (int colIdx = 0; colIdx < colCount; ++colIdx)
+            for (int colIdx = 0; colIdx < colCount; ++colIdx)
+            {
+                Field field = fields[colIdx];
+                if (field.Type != FieldType.Ref && string.IsNullOrEmpty(field.RefSchemaName))
+                {// 참조 프로퍼티가 Flat화 되면서 String으로 변경되어서 일단 이렇게 했음. 추후에 방식 수정 필요
+                    continue;
+                }
+
+                // 컬럼에 색칠 되어있을 수 있으니 모두 제거
+                Excel.Range colStartCell = (Excel.Range)sheetCells.Cells[MarginRowCount + 1, MarginColumnCount + 1 + colIdx];
+                Excel.Range colEndCell = (Excel.Range)sheetCells.Cells[MarginRowCount + rowCount, MarginColumnCount + 1 + colIdx];
+                Excel.Range colRange = sheetCells.Range[colStartCell, colEndCell];
+                colRange.Interior.ColorIndex = 0;
+
+                for (int rowIdx = 1; rowIdx < rowCount; ++rowIdx)
                 {
                     object fieldVal = tableDatas[rowIdx, colIdx];
                     if (fieldVal == null)
@@ -267,16 +332,10 @@ namespace Hexx.Converters
                         continue;
                     }
 
-                    Field field = fields[colIdx];
-                    if (string.IsNullOrEmpty(field.RefSchemaName))
-                    {
-                        continue;
-                    }
-
                     object refVal = linker.GetReferenceValue(field.RefSchemaName, field.RefFieldName, fieldVal);
                     if (refVal == null)
                     {// 값이 없음
-                        Excel.Range errCell = (Excel.Range)sheetCells.Cells[MarginRowCount + 2 + rowIdx, MarginColumnCount + 1 + colIdx];
+                        Excel.Range errCell = (Excel.Range)sheetCells.Cells[MarginRowCount + 1 + rowIdx, MarginColumnCount + 1 + colIdx];
                         errCell.Interior.Color = color;
                     }
                 }
@@ -286,27 +345,78 @@ namespace Hexx.Converters
         /// <summary>
         /// 필드 행 꾸미기
         /// </summary>
-        private void DecorateFieldRow(Excel.Worksheet worksheet, Schema schema)
+        private void DecorateFieldRow(Excel.Worksheet worksheet, Schema flatSchema)
         {
-            if (schema.FieldCount == 0)
+            if (flatSchema.FieldCount == 0)
             {
                 return;
             }
 
             Excel.Range sheetCells = worksheet.Cells;
             Excel.Range startCell = (Excel.Range)sheetCells[MarginRowCount + 1, MarginColumnCount + 1];
-            Excel.Range endCell = (Excel.Range)sheetCells[MarginRowCount + 1, MarginColumnCount + schema.FieldCount];
+            Excel.Range endCell = (Excel.Range)sheetCells[MarginRowCount + 1, MarginColumnCount + flatSchema.FieldCount];
             Excel.Range range = sheetCells.Range[startCell, endCell];
 
-            // 프로퍼티 이름 위치에 컬럼 검색 필터 적용
+            // 이름 위치에 컬럼 검색 필터 적용
             range.AutoFilter(1, VisibleDropDown: true);
 
-            // 프로퍼티 이름 너비로 컬럼 크기 맞춤
+            // 이름 너비로 컬럼 크기 맞춤
             range.Columns.AutoFit();
 
             Excel.Borders borders = range.Borders;
             borders.LineStyle = Excel.XlLineStyle.xlContinuous;
-            borders.Weight = Excel.XlBorderWeight.xlMedium;
+
+            Schema schema = linker.GetSchema(flatSchema.Name);
+            if (!schema.IsFlat && ColorPool.Any())
+            {// 하나의 필드가 엑셀 상에선 여러 컬럼으로 이루어진다면 색칠한다.
+                int colorPoolIdx = 0;
+                int cellStartIdx = 1;
+
+                foreach (Field field in schema.Fields)
+                {
+                    int count = GetFieldCellCount(field);
+
+                    if (count > 1)
+                    {
+                        Excel.Range fieldStartCell = (Excel.Range)sheetCells[MarginRowCount + 1, MarginColumnCount + cellStartIdx];
+                        Excel.Range fieldEndCell = (Excel.Range)sheetCells[MarginRowCount + 1, MarginColumnCount + cellStartIdx + count - 1];
+                        Excel.Range fieldRange = sheetCells.Range[fieldStartCell, fieldEndCell];
+                        Excel.XlRgbColor color = ColorPool[colorPoolIdx];
+                        fieldRange.Interior.Color = color;
+                        colorPoolIdx = (colorPoolIdx + 1) % ColorPool.Length;
+                    }
+
+                    cellStartIdx = cellStartIdx + count;
+                }
+            }
+        }
+
+        private int GetFieldCellCount(Field field)
+        {
+            int count = 0;
+
+            if (field.IsContainerType)
+            {
+                foreach (Field elemField in field.Elements)
+                {
+                    count += GetFieldCellCount(elemField);
+                }
+            }
+            else if (field.Type == FieldType.Schema)
+            {
+                Schema schema = linker.GetSchema(field.RefSchemaName);
+                
+                foreach (Field propField in schema.Fields)
+                {
+                    count += GetFieldCellCount(propField);
+                }
+            }
+            else
+            {
+                count = 1;
+            }
+
+            return count;
         }
 
         /// <summary>
