@@ -25,8 +25,7 @@ namespace Hexx.Core
             indexedPartialTables = new Dictionary<string, List<Table>>(schemas.Count(), StringComparer.OrdinalIgnoreCase);
             indexedMergedTables = new Dictionary<string, Table>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (Schema schema in schemas.Concat(from table in tables
-                                                     select table.Schema))
+            foreach (Schema schema in schemas)
             {
                 if (indexedSchemas.TryGetValue(schema.Name, out Schema existingSchema))
                 {// 이미 정의된 스키마가 있음
@@ -39,6 +38,24 @@ namespace Hexx.Core
                 {// 이미 정의된 스키마가 없음
                     indexedSchemas.Add(schema.Name, schema);
                     indexedPartialTables.Add(schema.Name, new List<Table>());
+                }
+            }
+
+            foreach (Schema tableSchema in from table in tables
+                                           select table.Schema)
+            {
+                if (indexedSchemas.TryGetValue(tableSchema.Name, out Schema existingSchema))
+                {// 이미 정의된 스키마가 있음
+                    Schema flatSchema = ToFlatSchema(existingSchema);
+                    if (!flatSchema.IsCompatibleWith(tableSchema))
+                    {
+                        throw new Exception($"The schema({tableSchema.Name}) is not compatible with an existing schema");
+                    }
+                }
+                else
+                {// 이미 정의된 스키마가 없음
+                    indexedSchemas.Add(tableSchema.Name, tableSchema);
+                    indexedPartialTables.Add(tableSchema.Name, new List<Table>());
                 }
             }
 
@@ -203,20 +220,20 @@ namespace Hexx.Core
         /// 참조하는 값을 반환합니다.
         /// </summary>
         /// <param name="property">필드</param>
-        /// <param name="value">값</param>
+        /// <param name="refFieldValue">값</param>
         /// <returns>참조하는 값. 실패 시 null을 반환합니다.</returns>
-        public object GetReferenceValue(string tableName, string refFieldName, object value)
+        public object GetReferenceValue(string tableName, string refFieldName, object refFieldValue)
         {
-            return GetReferenceValue(tableName, refFieldName, refFieldName, value);
+            return GetReferenceValue(tableName, refFieldName, refFieldName, refFieldValue);
         }
 
         /// <summary>
         /// 참조하는 값을 반환합니다.
         /// </summary>
         /// <param name="property">필드</param>
-        /// <param name="value">값</param>
+        /// <param name="refFieldValue">값</param>
         /// <returns>참조하는 값. 실패 시 null을 반환합니다.</returns>
-        public object GetReferenceValue(string tableName, string refFieldName, string refPickedFieldName, object value)
+        public object GetReferenceValue(string tableName, string refFieldName, string refPickedFieldName, object refFieldValue)
         {
             Table table;
             if (indexedMergedTables.TryGetValue(tableName, out table))
@@ -225,7 +242,7 @@ namespace Hexx.Core
                 int repIdx = table.Schema.GetFieldIndex(refPickedFieldName);
                 if (refIdx != -1 && repIdx != -1)
                 {
-                    object[] foundRow = table.FindFirstRow(refFieldName, value);
+                    object[] foundRow = table.FindFirstRow(refFieldName, refFieldValue);
                     if (foundRow != null)
                     {
                         return foundRow[repIdx];
@@ -418,41 +435,6 @@ namespace Hexx.Core
                                     flatFields.Add(elemFlatProp);
                                 }
                             }
-                        }
-                        break;
-                    }
-                case FieldType.Ref:
-                    {
-                        Schema refSchema = GetSchema(field.RefSchemaName);
-                        if (refSchema == null)
-                        {
-                            return null;
-                        }
-
-                        // 래퍼런스는 플랫화 시 자신을 참조하는 필드로 변경
-                        Field refField = refSchema.GetField(field.RefFieldName);
-                        if (refField == null)
-                        {
-                            return null;
-                        }
-                        else if (!refField.IsSimpleType)
-                        {// 참조가 가리키는 값은 ValueCategoryType만 가리킬 수 있음
-                            return null;
-                        }
-                        else
-                        {
-                            Field flatField = new Field(field.Name, refField.Type);
-                            flatField.NullDefaultValue = field.NullDefaultValue;
-                            flatField.RefSchemaName = field.RefSchemaName;
-                            flatField.RefFieldName = field.RefFieldName;
-                            flatField.RefPickedFieldName = field.RefPickedFieldName;
-                            if (field.ElementTemplate != null)
-                            {
-                                flatField.ElementTemplate = new Field(field.ElementTemplate);
-                            }
-                            flatField.ElementCount = field.ElementCount;
-
-                            flatFields.Add(flatField);
                         }
                         break;
                     }

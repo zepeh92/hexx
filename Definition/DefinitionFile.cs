@@ -16,7 +16,7 @@ namespace Hexx.Definition
     {
         Dictionary<string, Table> enumTables = new Dictionary<string, Table>(StringComparer.OrdinalIgnoreCase);
         Dictionary<string, Schema> schemas = new Dictionary<string, Schema>(StringComparer.OrdinalIgnoreCase);
-        List<Schema> nilFieldSchemas = new List<Schema>();
+        List<(Schema schema, List<Field> nilFields)> nilFieldSchemas = new List<(Schema schema, List<Field> nilFields)>();
         Dictionary<string, DefinitionType> defs = new Dictionary<string, DefinitionType>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
@@ -80,6 +80,17 @@ namespace Hexx.Definition
             }
         }
 
+        public IEnumerable<(Schema, IEnumerable<Field>)> NilFieldSchemas
+        {
+            get
+            {
+                foreach ((Schema schema, List<Field> nilFields) in nilFieldSchemas)
+                {
+                    yield return (schema, nilFields);
+                }
+            }
+        }
+
         /// <summary>
         /// 이 파일에 정의된 정의 이름 여부를 반환합니다.
         /// </summary>
@@ -117,9 +128,19 @@ namespace Hexx.Definition
 
             defs.Add(newSchema.Name, DefinitionType.Schema);
 
-            if (newSchema.Fields.Any(field => HasNilField(field)))
+            List<Field> nilFields = new List<Field>();
+
+            foreach (Field field in newSchema.Fields)
             {
-                nilFieldSchemas.Add(newSchema);
+                if (HasNilField(field))
+                {
+                    nilFields.Add(field);
+                }
+            }
+
+            if (nilFields.Any())
+            {
+                nilFieldSchemas.Add((newSchema, nilFields));
             }
 
             Weave();
@@ -154,6 +175,18 @@ namespace Hexx.Definition
             if (Contains(newEnumTable.Name))
             {
                 return false;
+            }
+
+            Field enumNameField = newEnumTable.Schema["name"];
+            if (enumNameField == null)
+            {
+                throw new ArgumentNullException($"name field not found");
+            }
+
+            Field enumValueField = newEnumTable.Schema["value"];
+            if (enumValueField == null)
+            {
+                throw new ArgumentNullException($"value field not found");
             }
 
             enumTables.Add(newEnumTable.Name, newEnumTable);
@@ -193,27 +226,36 @@ namespace Hexx.Definition
                 return;
             }
 
-            for (int i = 0; i != nilFieldSchemas.Count; ++i)
+            bool nilSchemaHasChanged = false;
+
+            for (int nilSchemaIdx = 0; nilSchemaIdx != nilFieldSchemas.Count; ++nilSchemaIdx)
             {
-                Schema schema = nilFieldSchemas[i];
+                (Schema schema, List<Field> nilFields) = nilFieldSchemas[nilSchemaIdx];
 
-                bool success = true;
+                bool nilFieldHasChanged = false;
 
-                foreach (Field field in schema.Fields)
+                for (int nilFieldIdx = 0; nilFieldIdx != nilFields.Count; ++nilFieldIdx)
                 {
-                    if (!WeaveField(field))
+                    Field nilField = nilFields[nilFieldIdx];
+
+                    if (WeaveField(nilField))
                     {
-                        success = false;
+                        nilFields[nilFieldIdx] = null;
+                        nilFieldHasChanged = true;
                     }
                 }
 
-                if (success)
+                if (nilFieldHasChanged)
                 {
-                    nilFieldSchemas[i] = null;
+                    nilSchemaHasChanged = true;
+                    nilFields.RemoveAll(field => field == null);
                 }
             }
 
-            nilFieldSchemas.RemoveAll(schema => schema == null);
+            if (nilSchemaHasChanged)
+            {
+                nilFieldSchemas.RemoveAll(v => !v.nilFields.Any());
+            }
         }
 
         /// <summary>
@@ -248,14 +290,45 @@ namespace Hexx.Definition
                     switch (defType)
                     {
                         case DefinitionType.Schema:
-                            field.Type = FieldType.Schema;
+                            {
+                                field.Type = FieldType.Schema;
+                            }
                             break;
                         case DefinitionType.EnumTable:
-                            Table enumTable = GetEnumTable(field.TypeName);
-                            field.Type = enumTable.Schema["value"].Type;
+                            {
+                                Table enumTable = GetEnumTable(field.TypeName);
+                                Field refField = enumTable.Schema["name"];
+                                Field repField = enumTable.Schema["value"];
+                                if (refField != null && repField != null)
+                                {
+                                    field.Type = refField.Type;
+                                    field.RefFieldName = refField.Name;
+                                    field.CachedRefPickedFieldType = repField.Type;
+                                    field.RefPickedFieldName = repField.Name;
+                                }
+                            }
                             break;
                         default:
-                            success = false;
+                            {
+                                if (string.IsNullOrEmpty(field.RefTableName))
+                                {
+                                    success = false;
+                                }
+                                else
+                                {
+                                    Schema refTableSchema = GetSchema(field.RefTableName);
+                                    Field refField = refTableSchema[field.RefFieldName];
+                                    Field repField = refTableSchema[field.RefPickedFieldName];
+                                    if (refField != null && repField != null)
+                                    {
+                                        field.Type = refField.Type;
+                                        field.RefFieldName = refField.Name;
+                                        field.CachedRefPickedFieldType = repField.Type;
+                                        field.RefPickedFieldName = repField.Name;
+                                        success = true;
+                                    }
+                                }
+                            }
                             break;
                     }
                 }

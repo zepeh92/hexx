@@ -38,10 +38,12 @@ namespace Hexx.Core
                     AllowDBNull = field.Nullable
                 };
 
-                // Nullable 일 때에만 NullDefaultValue 지정 가능.
-                // Nullable이 아닌 필드에 null 입력 시 예외 발생
-                if (field.Nullable && field.NullDefaultValue != null)
+                if (field.NullDefaultValue != null)
                 {
+                    if (field.Nullable)
+                    {
+                        throw new ArgumentException($"Nullable can't be used with NullDefaultValue");
+                    }
                     column.DefaultValue = field.NullDefaultValue;
                 }
 

@@ -126,6 +126,8 @@ namespace Hexx.Definition
             {
                 Schema schema = new Schema();
 
+                bool hasPartial = false;
+
                 while (reader.TokenType != JsonTokenType.EndObject)
                 {
                     string propName = reader.GetString();
@@ -171,6 +173,8 @@ namespace Hexx.Definition
                         case "partials":
                         case "parts":
                             {
+                                hasPartial = true;
+
                                 foreach (string name in reader.ReadStringList())
                                 {
                                     if (!PartialNameRegex.IsMatch(name))
@@ -207,6 +211,11 @@ namespace Hexx.Definition
                                 break;
                             }
                     }
+                }
+
+                if (!hasPartial)
+                {
+                    schema.AddPartial(schema.Name);
                 }
 
                 if (!defFile.AddSchema(schema))
@@ -559,9 +568,11 @@ namespace Hexx.Definition
                 match = RefTypeRegex.Match(str);
                 GroupCollection groups = match.Groups;
 
-                field.Type = FieldType.Ref;
+                field.Type = FieldType.Nil;
                 field.TypeName = str;
-                field.RefTableName = groups["refTableName"].Value;
+                string refTableName = groups["refTableName"].Value;
+                field.RefTableName = refTableName;
+                field.RefSchemaName = refTableName;
                 field.RefFieldName = groups["refPropName"].Value;
                 field.RefPickedFieldName = groups["repPropName"].Value;
             }

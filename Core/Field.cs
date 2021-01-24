@@ -17,7 +17,6 @@ namespace Hexx.Core
         String,
         List,
         Schema,
-        Ref
     }
 
     public class Field
@@ -38,7 +37,6 @@ namespace Hexx.Core
         {
             Name = name;
             Type = type;
-            NullDefaultValue = type.GetDefaultValue();
         }
 
         /// <summary>
@@ -154,7 +152,7 @@ namespace Hexx.Core
 
         /// <summary>
         /// null 입력 시 설정될 값 입니다.
-        /// 이 값은 Nullable일 때에만 지정 가능합니다.
+        /// 이 값은 Nullable이 아닐 때에만 지정 가능합니다.
         /// </summary>
         public object NullDefaultValue
         {
@@ -204,9 +202,9 @@ namespace Hexx.Core
                         case FieldType.Schema:
                             defaultValue = null;
                             break;
-                        case FieldType.Ref:
-                            defaultValue = value;
-                            break;
+                        //case FieldType.Ref:
+                        //    defaultValue = value;
+                        //    break;
                         default:
                             if (IsContainerType)
                             {// 컨테이너 타입은 하위 요소에 default value를 전파
@@ -245,7 +243,6 @@ namespace Hexx.Core
 
         /// <summary>
         /// 가리키는 테이블에서 가리키는 행의 필드 이름을 반환합니다.
-        /// 이 값은 REF 타입을 때에만 유효합니다.
         /// </summary>
         public string RefFieldName
         {
@@ -254,14 +251,22 @@ namespace Hexx.Core
         } = string.Empty;
 
         /// <summary>
-        /// 가리키는 테이블 행에서 가져올 값을 반환합니다.
-        /// 이 값은 REF 타입을 때에만 유효합니다.
+        /// 가리키는 테이블 행에서 가져올 값.
         /// </summary>
         public string RefPickedFieldName
         {
             get;
             set;
         } = string.Empty;
+
+        /// <summary>
+        /// 가리키는 테이블 행에서 가져올 필드의 타입.
+        /// </summary>
+        public FieldType CachedRefPickedFieldType
+        {
+            get;
+            set;
+        } = FieldType.Nil;
 
         /// <summary>
         /// 이 필드의 그룹입니다.
@@ -412,11 +417,12 @@ namespace Hexx.Core
                 return false;
             }
 
-            if (Type == FieldType.Ref && !DirectsSameRefenceTarget(other))
-            {
-                return false;
-            }
-            else if (Type == FieldType.Schema && !DirectsSameRefenceTarget(other))
+            //if (Type == FieldType.Ref && !DirectsSameRefenceTarget(other))
+            //{
+            //    return false;
+            //}
+            //else 
+            if (Type == FieldType.Schema && !DirectsSameRefenceTarget(other))
             {
                 return false;
             }
@@ -461,18 +467,19 @@ namespace Hexx.Core
         /// </summary>
         public bool DirectsSameRefenceTarget(Field other)
         {
-            if (Type == FieldType.Ref && other.Type == FieldType.Ref)
+
+            if (Type == FieldType.Schema && other.Type == FieldType.Schema)
+            {
+                return string.Equals(RefSchemaName, other.RefSchemaName, StringComparison.OrdinalIgnoreCase);
+            }
+            else
             {
                 return
-                    RefTableName.Equals(other.RefTableName, StringComparison.OrdinalIgnoreCase) &&
-                    RefFieldName.Equals(other.RefFieldName, StringComparison.OrdinalIgnoreCase) &&
-                    RefPickedFieldName.Equals(other.RefPickedFieldName, StringComparison.OrdinalIgnoreCase);
+                    string.Equals(RefTableName, other.RefTableName, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(RefFieldName, other.RefFieldName, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(RefPickedFieldName, other.RefPickedFieldName, StringComparison.OrdinalIgnoreCase);
+
             }
-            else if (Type == FieldType.Schema && other.Type == FieldType.Schema)
-            {
-                return RefSchemaName.Equals(other.RefSchemaName, StringComparison.OrdinalIgnoreCase);
-            }
-            return false;
         }
     }
 }

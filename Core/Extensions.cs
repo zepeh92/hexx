@@ -61,8 +61,6 @@ namespace Hexx.Core
                     return null;
                 case FieldType.Schema:
                     return null;
-                case FieldType.Ref:
-                    return null;
                 default:
                     return null;
             }

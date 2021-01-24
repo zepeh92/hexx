@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net5.0</TargetFramework>
-    <RootNamespace>Hexx.Definition</RootNamespace>
     <AssemblyName>hxdef</AssemblyName>
+    <RootNamespace>Hexx.Definition</RootNamespace>
   </PropertyGroup>
 
   <ItemGroup>
